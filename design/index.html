@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mushroom Village</title>
+<style>
+  @font-face { font-family: 'GoDing'; src: url(fonts/goding.ttf); }
+  @font-face { font-family: 'Doldam'; src: url(fonts/EF_jejudoldam.otf); }
+  * { margin: 0; box-sizing: border-box; }
+  body { height: 100vh; overflow: hidden; background: #473427 url(img/bg.png); color: #f6e3a8; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  h1 { position: absolute; top: 8%; width: 100%; text-align: center; transition: opacity .6s; }
+  h1 img { width: 30vw; }
+  h1 b { font: 6vw 'GoDing', cursive; }                    /* 제목 그림이 없는 테마는 글자로 */
+
+  /* 버섯 버튼 : --x --y 위치, --w 크기, --i 순서 */
+  .mush { position: absolute; left: var(--x); top: var(--y); width: var(--w); translate: -50% -50%;
+          background: none; border: 0; color: inherit; cursor: pointer;
+          transition: scale .4s, rotate .4s, opacity .6s, left 1s, top 1s, width 1s; }
+  .mush img { width: 100%; display: block; }
+  .mush span { position: absolute; left: 50%; top: 110%; translate: -50%; white-space: nowrap;
+               font: 1.5vw 'GoDing', cursive; transition: opacity .4s; }
+  .mush:hover { scale: 1.15; rotate: -3deg; }
+
+  /* 포자 화면 : body 에 .spore 가 붙으면 버섯들이 왼쪽 아래로 모여 선택 버튼이 된다 */
+  .spore canvas { pointer-events: auto; cursor: crosshair; }
+  .spore h1, .spore .mush span { opacity: 0; pointer-events: none; }
+  .spore .mush { left: calc(5.5vw + var(--i) * 4.6vw); top: 90%; width: calc(var(--w) * .26); opacity: .6; }
+  .spore .mush.on { opacity: 1; }                       /* 지금 고른 버섯 */
+  .spore .mush:hover { opacity: 1; scale: 1.25; }
+
+  /* 테마를 바꾸는 동안 잠깐 사라졌다 나타난다 */
+  .fade h1, .fade .mush { opacity: 0 !important; pointer-events: none; }
+
+  /* 아래 가운데 버튼들 : 포자 화면에서만 보이고, 화면을 덜 가리게 작고 살짝 투명하다.
+     아래쪽 버섯 아이콘 줄과 같은 높이(90%)에 맞춘다. hover 하면 진해지고 색이 뒤집힌다 */
+  nav { position: fixed; top: 90%; left: 50%; translate: -50% -50%; display: none; gap: .8vw; }
+  .spore nav { display: flex; }
+  nav button, #btnTheme, #btnPrev { width: 5.6vw; height: 1.8vw; border: .1vw solid #493527; border-radius: 1vw; cursor: pointer; opacity: .75;
+               background: #fff3bb; color: #493527; font: .9vw 'Doldam', sans-serif; transition: background .3s, color .3s, opacity .3s; }
+  nav button:hover, #btnTheme:hover, #btnPrev:hover { background: #5b4a3c; color: #fff3bb; opacity: 1; }
+
+  /* 오른쪽 아래 테마 버튼 : 홈, 포자 화면 둘 다 보인다 */
+  #btnTheme { position: fixed; right: 3vw; top: 90%; translate: 0 -50%; width: auto; min-width: 5.6vw; padding: 0 .9vw; }
+  /* 왼쪽 아래 이전 테마 버튼 : 첫 화면(홈)에서만 보인다. 포자 화면에선 그 자리에 아이콘 줄이 온다 */
+  #btnPrev { position: fixed; left: 3vw; top: 90%; translate: 0 -50%; width: auto; min-width: 5.6vw; padding: 0 .9vw; }
+  .spore #btnPrev, .fade #btnPrev { display: none; }
+
+  /* 우주 테마 : 매 프레임 다시 그리는 캔버스(#sky)를 따로 쓴다. body 에 .space 가 붙으면 보인다 */
+  #sky { display: none; }
+  .space #sky { display: block; }
+  .spore.space #sky { pointer-events: auto; cursor: crosshair; }
+</style>
+</head>
+<body>
+  <canvas></canvas>
+  <canvas id="sky"></canvas>
+  <h1></h1>
+
+  <!-- 버튼 자리만 정해 두고, 그림·이름·크기는 아래 THEMES 에서 채운다 -->
+  <button class="mush" style="--x:13.6%; --y:61.6%; --i:0"><img alt=""><span></span></button>
+  <button class="mush" style="--x:27.7%; --y:33.8%; --i:1"><img alt=""><span></span></button>
+  <button class="mush" style="--x:39.6%; --y:69.1%; --i:2"><img alt=""><span></span></button>
+  <button class="mush" style="--x:59.1%; --y:38.4%; --i:3"><img alt=""><span></span></button>
+  <button class="mush" style="--x:71%;   --y:73.4%; --i:4"><img alt=""><span></span></button>
+  <button class="mush" style="--x:85.9%; --y:41.5%; --i:5"><img alt=""><span></span></button>
+
+  <nav>
+    <button id="btnRemove">Remove</button>
+    <button id="btnDry">Dry</button>
+    <button id="btnText">Text</button>
+    <button id="btnSave">Save</button>
+  </nav>
+
+  <button id="btnPrev"></button>
+  <button id="btnTheme"></button>
+
+<script src="assets.js"></script>
+<script src="space.js"></script>
+<script>
+// ── 테마 : 새 테마를 만들려면 여기에 하나 더 추가하면 된다 ──
+// title : 그림 경로(.png 등) 또는 그냥 글자 / mode : 'hypha' 균사, 'road' 도로 / size : 포자 문양 크기
+// items : 버튼 6개 (img 그림, label 이름, w 홈 화면 크기, color 균사 색)
+const THEMES = [
+  { name: 'Mushroom', title: 'img/title.png', mode: 'hypha', size: 40, items: [
+    { img: 'img/neutari.webp', label: '(1) 느타리버섯',     w: '15.9vw', color: '#e9b3f0' },
+    { img: 'img/gombo.webp',   label: '(2) 곰보버섯',       w: '11.4vw', color: '#f6c94a' },
+    { img: 'img/ssari.webp',   label: '(3) 싸리버섯',       w: '13.6vw', color: '#f5a7a2' },
+    { img: 'img/noru.webp',    label: '(4) 노루궁뎅이버섯', w: '10.5vw', color: '#f3e9bd' },
+    { img: 'img/meokmul.webp', label: '(5) 먹물버섯',       w: '14vw',   color: '#d6cdc2' },
+    { img: 'img/malbul.webp',  label: '(6) 말불버섯',       w: '11.2vw', color: '#d8b96a' },
+  ]},
+  // bgImg : 화면을 꽉 채우는 배경 그림 (없으면 버섯 배경). bgColor : 그림이 뜨기 전에 보일 색
+  // branch·spread·gap : 이 테마만 퍼지는 양을 따로 정한다 (없으면 아래 '포자 양 조절' 값을 쓴다)
+  { name: 'Building', title: 'Building Village', mode: 'road', size: 50, bgImg: 'img/build_bg.webp', bgColor: '#7f9a58',
+    branch: .0025, spread: .15, gap: 60, items: [
+    // k : 화면에 뿌려질 때의 크기 배율 (1 이 기본, 클수록 크게 핀다)
+    { img: 'img/apartment.webp', label: '(1) 아파트', w: '7.5vw',  k: .8 },
+    { img: 'img/church.webp',    label: '(2) 교회',   w: '13.5vw', k: 1.25 },
+    { img: 'img/factory.webp',   label: '(3) 공장',   w: '14.5vw', k: 1.25 },
+    { img: 'img/house.webp',     label: '(4) 주택',   w: '15.5vw', k: 1.25 },
+    { img: 'img/hanok.webp',     label: '(5) 한옥',   w: '18.5vw', k: 1.25 },
+    { img: 'img/school.webp',    label: '(6) 학교',   w: '16.5vw', k: 1.25 },
+  ]},
+  // 우주 : 움직임과 배경(space_bg.webp)은 space.js 에서 그린다. key 는 space.js 의 천체 이름
+  { name: 'Space', title: 'Space Village', mode: 'space', bgImg: 'img/space_bg.webp', bgColor: '#0c111c', items: [
+    { img: 'img/space/star.webp',      key: 'star',      label: '(1) 별',       w: '8vw' },
+    { img: 'img/space/comet.webp',     key: 'comet',     label: '(2) 혜성',     w: '11vw' },
+    { img: 'img/space/meteor.webp',    key: 'meteor',    label: '(3) 유성',     w: '9vw' },
+    { img: 'img/space/saturn.webp',    key: 'saturn',    label: '(4) 토성',     w: '15vw' },
+    { img: 'img/space/galaxy.webp',    key: 'galaxy',    label: '(5) 나선은하', w: '15vw' },
+    { img: 'img/space/supernova.webp', key: 'supernova', label: '(6) 초신성',   w: '11vw' },
+  ]},
+];
+
+// ── 포자 양 조절 : 여기 숫자만 바꾸면 된다 ──
+const TIPS = 1;        // 클릭 한 번에 뻗는 균사 수
+const GAP = 30;        // 드래그할 때 포자 간격(px). 작을수록 촘촘하게 드르륵 생긴다
+const LIFE = 70;       // 균사 길이 (클수록 멀리 퍼진다)
+const BRANCH = .006;   // 균사가 갈라질 확률 (클수록 가지가 많다)
+const SPREAD = .4;     // 포자 문양에서 다시 균사가 뻗을 확률 (0 이면 다시 안 뻗는다)
+const GENS = 1;        // 다시 뻗는 횟수 (0 이면 클릭한 자리 주변에만 핀다)
+
+// ── 도로 모양 조절 (건물 테마) ──
+const ROAD_W = 9;              // 도로 폭(px)
+const ROAD_COLOR = '#8f8b87';  // 도로 색 (회색)
+const DASH = [6, 6];           // 가운데 흰 점선 : [선 길이, 빈칸 길이]
+const TURN = .012;             // 도로가 90도로 꺾일 확률 (클수록 골목이 많아진다)
+
+const cv = document.querySelector('canvas'), ctx = cv.getContext('2d');
+const mushes = document.querySelectorAll('.mush');
+const h1 = document.querySelector('h1');
+let tips = [], blooms = [], img, color, last, dry = 0, theme, themeNo = 0;
+
+// 그림을 미리 불러 둔다 (캔버스에 바로 그릴 수 있게). assets.js 에 담아 둔 그림을 써야 Save 가 막히지 않는다
+THEMES.forEach(t => t.items.forEach(it => { it.pic = new Image(); it.pic.src = ASSETS[it.img] || it.img; it.pic.k = it.k || 1; }));
+const bgPic = new Image(); bgPic.src = ASSETS['img/bg.png'];   // Save 할 때 깔 배경 (버섯)
+THEMES.forEach(t => { if (t.bgImg) { t.bgPic = new Image(); t.bgPic.src = ASSETS[t.bgImg] || t.bgImg; } });   // 테마별 배경 그림
+
+function resize() {
+  cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+}
+resize(); onresize = resize;
+
+// 포자 심기 : (x, y) 에서 균사 끝(tip) n개가 사방으로 출발. 지금 고른 버섯(img, color)을 기억한다
+// 도로는 위·아래·왼쪽·오른쪽 네 방향 중 하나로만 출발한다
+function seed(x, y, n = TIPS, gen = 0, i = img, c = color) {
+  for (let k = 0; k < n; k++) {
+    const a = theme.mode == 'road' ? Math.floor(Math.random() * 4) * Math.PI / 2 : Math.random() * 6.28;
+    tips.push({ x, y, a, dist: 0, life: LIFE + Math.random() * LIFE * 1.5, gen, img: i, color: c });
+  }
+}
+
+// 도로 한 칸 : 회색 길을 깔고, 그 가운데에 얇은 흰 점선을 긋는다
+function road(x0, y0, t) {
+  ctx.globalAlpha = 1; ctx.lineCap = 'butt';
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(t.x, t.y);
+  ctx.strokeStyle = ROAD_COLOR; ctx.lineWidth = ROAD_W; ctx.setLineDash([]); ctx.stroke();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.setLineDash(DASH); ctx.lineDashOffset = t.dist; ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// 도로가 꺾이는 모서리를 둥글게 메운다
+function corner(x, y) {
+  ctx.globalAlpha = 1; ctx.fillStyle = ROAD_COLOR;
+  ctx.beginPath(); ctx.arc(x, y, ROAD_W / 2, 0, 6.29); ctx.fill();
+}
+
+function draw() {
+  const isRoad = theme.mode == 'road';
+  // 1) 균사 : 조금씩 방향을 틀며 자라고, 가끔 갈라지고, 다 자라면 포자 문양을 남긴다
+  //    도로 : 곧게 뻗다가 가끔 90도로 꺾이고, 가끔 옆으로 갈림길이 생긴다
+  ctx.lineWidth = 1; ctx.globalAlpha = .7;
+  for (const t of tips) {
+    const x0 = t.x, y0 = t.y;
+    if (isRoad) {
+      if (Math.random() < TURN) { t.a += (Math.random() < .5 ? 1 : -1) * Math.PI / 2; corner(t.x, t.y); }
+    } else t.a += (Math.random() - .5) * .6;
+    t.x += Math.cos(t.a) * 2.5; t.y += Math.sin(t.a) * 2.5;
+    if (isRoad) road(x0, y0, t);
+    else { ctx.globalAlpha = .7; ctx.lineWidth = 1; ctx.strokeStyle = t.color; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(t.x, t.y); ctx.stroke(); }
+    t.dist += 2.5;
+    if (Math.random() < (theme.branch ?? BRANCH)) tips.push({ ...t, a: isRoad ? t.a + (Math.random() < .5 ? 1 : -1) * Math.PI / 2 : t.a + (Math.random() - .5) * 2 });
+    if (--t.life < 0) blooms.push({ ...t, s: 0, max: (theme.size / 2 + Math.random() * theme.size) * t.img.k / (1 + t.gen * .5) });
+  }
+  tips = tips.filter(t => t.life >= 0);
+
+  // 2) 포자 문양 : 버섯 그림이 작게 피어나고, 다 피면 거기서 다시 균사가 뻗는다 (건물은 똑바로 선다)
+  for (const b of blooms) {
+    b.s += (b.max - b.s) * .1;
+    b.done = b.max - b.s < 1;
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(isRoad ? 0 : b.a);
+    ctx.globalAlpha = b.done ? 1 : .06;
+    ctx.drawImage(b.img, -b.s / 2, -b.s / 2, b.s, b.s * b.img.height / b.img.width);
+    ctx.restore();
+    if (b.done && b.gen < GENS && Math.random() < (theme.spread ?? SPREAD)) seed(b.x, b.y, 1, b.gen + 1, b.img, b.color);
+  }
+  blooms = blooms.filter(b => !b.done);
+  requestAnimationFrame(draw);
+}
+
+// 테마 적용 : 버튼 6개의 그림·이름·크기와 제목을 바꾼다
+function applyTheme() {
+  theme = THEMES[themeNo];
+  document.body.classList.toggle('space', theme.mode == 'space');
+  // 배경 : 그림이 있으면 화면을 꽉 채우고, 색만 있으면 단색, 둘 다 없으면 기본(버섯) 배경
+  document.body.style.background = theme.bgImg ? `${theme.bgColor} url(${theme.bgImg}) center / cover` : (theme.bgColor || '');
+  Space.active = theme.mode == 'space';
+  h1.innerHTML = /\.(png|jpe?g|webp|gif|svg)$/.test(theme.title) ? `<img src="${theme.title}" alt="${theme.name}">` : `<b>${theme.title}</b>`;
+  mushes.forEach((m, k) => {
+    const it = theme.items[k];
+    m.querySelector('img').src = it.img;
+    m.querySelector('span').textContent = it.label;
+    m.style.setProperty('--w', it.w);
+    m.classList.remove('on');
+  });
+  btnTheme.textContent = THEMES[(themeNo + 1) % THEMES.length].name + ' ▸';   // 다음 테마 이름
+  btnPrev.textContent = '◂ ' + THEMES[(themeNo - 1 + THEMES.length) % THEMES.length].name;   // 이전 테마 이름
+}
+Space.start(document.querySelector('#sky'));
+document.querySelector('#sky').addEventListener('pointerdown', () => dry = 0);   // 우주도 새로 뿌리면 Dry 횟수는 처음부터
+applyTheme();
+draw();
+
+// 버섯 클릭 : 홈에서는 포자 화면으로 들어가고, 포자 화면에서는 버섯 종류만 바뀐다
+mushes.forEach((m, k) => m.onclick = () => {
+  if (document.body.classList.contains('spore')) play(sndMush);   // 포자 화면에서 버섯을 바꿀 때만 효과음
+  img = theme.items[k].pic; color = theme.items[k].color;
+  if (theme.mode == 'space') Space.pick(theme.items[k].key);
+  mushes.forEach(o => o.classList.toggle('on', o === m));
+  document.body.classList.add('spore');
+});
+
+// 포자 화면 : 클릭하면 균사가 조금 뻗고, 누른 채 그으면 지나간 길을 따라 포자 문양이 바로 핀다
+cv.onpointerdown = e => { last = { x: e.clientX, y: e.clientY }; seed(last.x, last.y); dry = 0; };   // 새로 뿌리면 Dry 횟수는 처음부터
+cv.onpointerup = () => last = null;
+cv.onpointermove = e => {
+  if (!e.buttons || !last) return;
+  const gap = theme.gap ?? GAP;
+  for (let d; (d = Math.hypot(e.clientX - last.x, e.clientY - last.y)) >= gap;) {   // gap 만큼 지날 때마다 하나씩
+    last.x += (e.clientX - last.x) * gap / d; last.y += (e.clientY - last.y) * gap / d;
+    blooms.push({ x: last.x + (Math.random() - .5) * gap, y: last.y + (Math.random() - .5) * gap,
+                  a: Math.random() * 6.28, s: 0, max: (theme.size / 2 + Math.random() * theme.size) * img.k, gen: 0, img, color });
+  }
+};
+
+// 효과음 : sound 폴더의 파일을 미리 불러 두고, 누를 때마다 처음부터 재생한다
+const sndRemove = new Audio('audio/remove.aac'), sndDry = new Audio('audio/dry.wav'), sndMush = new Audio('audio/mushroom.aac');
+sndRemove.volume = .3; sndDry.volume = .3; sndMush.volume = .3;   // 0 ~ 1, 작을수록 조용하다
+
+function play(snd) { snd.currentTime = 0; snd.play().catch(() => {}); }
+
+// 뿌린 포자를 전부 지운다
+function clearAll() { tips = []; blooms = []; dry = 0; ctx.clearRect(0, 0, innerWidth, innerHeight); Space.reset(); }
+
+// Save : 지금 화면을 PNG 로 저장한다 (버튼·아이콘은 빼고 그림만). 파일 이름 예) mushroom-map-20261125-183012.png
+btnSave.onclick = () => {
+  let out = Space.canvas();                                // 우주는 배경까지 한 캔버스에 그려져 있다
+  if (theme.mode != 'space') {
+    // 버섯·건물 : 화면과 똑같이 배경을 먼저 깔고, 그 위에 그려 둔 캔버스를 얹는다
+    out = document.createElement('canvas'); out.width = cv.width; out.height = cv.height;
+    const o = out.getContext('2d'), W = out.width, H = out.height;
+    if (theme.bgPic) {
+      // 테마 배경 그림 : 화면을 꽉 채우게 (가운데 맞춤, 넘치는 부분은 잘림)
+      const p = theme.bgPic, s = Math.max(W / p.width, H / p.height);
+      o.fillStyle = theme.bgColor; o.fillRect(0, 0, W, H);
+      o.drawImage(p, (W - p.width * s) / 2, (H - p.height * s) / 2, p.width * s, p.height * s);
+    } else {
+      // 버섯 배경 : 바둑판처럼 반복
+      const pat = o.createPattern(bgPic, 'repeat');
+      pat.setTransform(new DOMMatrix().scale(devicePixelRatio));
+      o.fillStyle = '#473427'; o.fillRect(0, 0, W, H);
+      o.fillStyle = pat; o.fillRect(0, 0, W, H);
+    }
+    o.drawImage(cv, 0, 0);
+  }
+  const d = new Date(), z = n => String(n).padStart(2, '0');
+  out.toBlob(blob => {
+    const a = document.createElement('a');
+    a.download = `${theme.name.toLowerCase()}-map-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.png`;
+    a.href = URL.createObjectURL(blob); a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }, 'image/png');
+};
+
+// Remove : 효과음 + 전부 지우기
+btnRemove.onclick = () => { play(sndRemove); clearAll(); };
+
+// Dry : 효과음 + 누를 때마다 30씩 옅어지고 (100 → 70 → 40), 세 번째에 전부 지워진다
+btnDry.onclick = () => {
+  play(sndDry);
+  if (++dry == 3) return clearAll();
+  if (theme.mode == 'space') return Space.dry(dry);       // 우주는 space.js 가 옅게 만든다
+  ctx.globalCompositeOperation = 'destination-out';      // 이미 그려진 것을 '덜어내는' 모드
+  ctx.globalAlpha = .3 / (1.3 - dry * .3);               // 1번째 30% 덜어냄 → 70, 2번째 → 40
+  ctx.fillRect(0, 0, innerWidth, innerHeight);
+  ctx.globalCompositeOperation = 'source-over';          // 다시 평소처럼 그리는 모드
+};
+
+// 테마 버튼 : 오른쪽은 다음 테마, 왼쪽은 이전 테마로 넘어가고 홈 화면으로 돌아간다 (그려 둔 것은 지운다)
+function goTheme(step) {
+  clearAll(); img = null;
+  document.body.classList.remove('spore');
+  document.body.classList.add('fade');
+  setTimeout(() => {
+    themeNo = (themeNo + step + THEMES.length) % THEMES.length;   // 끝에서 넘기면 처음으로, 처음에서 거꾸로 넘기면 끝으로
+    applyTheme();
+    document.body.classList.remove('fade');
+  }, 600);
+}
+btnTheme.onclick = () => goTheme(1);
+btnPrev.onclick = () => goTheme(-1);
+</script>
+</body>
+</html>
